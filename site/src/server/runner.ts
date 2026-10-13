@@ -87,7 +87,12 @@ function resolveClaudeExe(): string {
 
 // Uruchom skill Claude Code headless jako zadanie w tle. Prompt instruuje agenta, by wywołał skill
 // i na końcu wypisał JSON w ostatniej linii. Zwraca jobId (UI poll-uje /api/job/<id>).
-export function startClaudeJob(kind: Job['kind'], label: string, prompt: string, listingId: string | null = null): string {
+// postRun (opcjonalne) — wywołane synchronicznie po zamknięciu procesu, np. do przeliczenia priorytetu.
+export function startClaudeJob(
+  kind: Job['kind'], label: string, prompt: string,
+  listingId: string | null = null,
+  postRun?: (job: Job) => void,
+): string {
   const id = `${Date.now()}_${++seq}`;
   const job: Job = {
     id, kind, status: 'running', label, output: '', result: null, error: null,
@@ -133,6 +138,7 @@ export function startClaudeJob(kind: Job['kind'], label: string, prompt: string,
       job.status = 'error';
       job.error = job.result?.error || `Claude Code zakończył się kodem ${code}`;
     }
+    if (postRun) { try { postRun(job); } catch {} }
   });
   return id;
 }

@@ -32,10 +32,12 @@ UI przed wywołaniem tego skilla.)
 
 ## Krok 2: Analiza terenowa (przetestowany skrypt)
 **Najpierw wyłuskaj z ogłoszenia numery działek ORAZ nazwę obrębu/miejscowości (to Twoje zadanie — nie
-skryptu).** Przeczytaj `description`/`title` i wypisz: (1) wszystkie jawne numery ewidencyjne (np. „działka
+skryptu).** Przeczytaj **notatki użytkownika (`notes[]`)** oraz `description`/`title` i wypisz: (1) wszystkie jawne numery ewidencyjne (np. „działka
 nr 319/5", „dz. ewid. 123/4", „nr 319/5 i 319/6"); (2) **nazwę obrębu/wsi, w której leży działka** — często
 w tytule/treści (np. „w Bartnicy", „obręb Krzewina", „działka w Świerkach"). Wyłuskanie z tekstu robisz Ty
 (LLM); **rozwiązanie numeru na współrzędne jest już deterministyczne** w skrypcie.
+**Numery/obręb z notatek użytkownika mają PIERWSZEŃSTWO** nad opisem sprzedającego (użytkownik zwykle
+dostał je od sprzedawcy/agenta) — gdy notatka podaje numery, użyj właśnie ich (+ obręb/gmina z notatki).
 
 Uruchom analizę — **jeśli znalazłeś numery, podaj każdy przez `--parcel-no`, a nazwę obrębu przez
 `--region-name`** (oba powtarzalne):
@@ -68,7 +70,7 @@ Punkt z ogłoszenia (OLX/Otodom) to zwykle centroid miejscowości. Gdy skrypt ro
 wtedy „współrzędne orientacyjne"). W przeciwnym razie `terrain` traktuj jako poglądowy, a **numeru działki
 NIGDY nie podawaj „bo ULDK by-XY coś zwrócił"**. Numer działki wolno zapisać **tylko** gdy:
 - **(a) jest wprost podany w treści ogłoszenia** (np. „działka nr 89/5", „dz. ewid. 123/4", „nr 319/5 i 319/6")
-  — wyłuskujesz go z `description`/`title` i podajesz do `geo_analyze` przez `--parcel-no`. Skrypt rozwiązuje
+  — wyłuskujesz go z `notes[]`/`description`/`title` i podajesz do `geo_analyze` przez `--parcel-no`. Skrypt rozwiązuje
   go w ULDK na realną geometrię (`parcel.confirmed=true`, współrzędne z geoportalu). Numer autorytatywny
   (źródło: ogłoszenie+ULDK). **To domyślny, najważniejszy przypadek — gdy w ogłoszeniu są numery, ZAWSZE
   podaj je przez `--parcel-no`.** Albo

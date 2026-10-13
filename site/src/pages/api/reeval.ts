@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { startClaudeJob, findRunningJob } from '../../server/runner';
+import { startDeepDive, notesHaveUnconfirmedParcels } from '../../server/deepdive';
 
 export const prerender = false;
 
@@ -33,7 +34,14 @@ export const POST: APIRoute = async ({ request }) => {
       `5. **STATUSU NIE ZMIENIAJ** — to istniejąca oferta, re-ocena rusza tylko score/ocenę/datę, nie status.\n` +
       `6. Na samym końcu wypisz w OSTATNIEJ linii TYLKO czysty JSON: {"ok":true,"id":"${id}","score":<liczba>} ` +
       `(albo {"ok":false,"error":"..."}). NIE kończ na tablicy z oceny — wynik MUSI być zapisany w krokach 4.`;
-    const jobId = startClaudeJob('reeval', `ponowna ocena: ${id}`, prompt, id);
+    const jobId = startClaudeJob('reeval', `ponowna ocena: ${id}`, prompt, id,
+      (job) => {
+        // notatka podała numery działek, a karta ich nie potwierdza → deep-dive rozwiąże je w ULDK
+        if (job.status === 'done' && notesHaveUnconfirmedParcels(id)) {
+          startDeepDive(id, `Użytkownik podał w notatce numery działek — rozwiąż je i zaktualizuj blok parcel. `);
+        }
+      },
+    );
     return new Response(JSON.stringify({ ok: true, jobId }), {
       headers: { 'content-type': 'application/json' },
     });
