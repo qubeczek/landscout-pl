@@ -10,6 +10,7 @@ properties/listings/*
 properties/photos/*
 !properties/photos/.gitkeep
 properties/facebook_groups.json
+properties/priority_registry.json
 kryteria-poszukiwania.pdf
 dd_section_*.md
 

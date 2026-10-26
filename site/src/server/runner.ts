@@ -11,6 +11,13 @@ export const PROJECT_DIR =
   process.env.ASSISTANT_DIR ||
   (basename(process.cwd()) === 'site' ? dirname(process.cwd()) : process.cwd());
 
+// Na Linux/macOS python3, na Windows python (standardowa instalacja z Microsoft Store też ma python3).
+const PYTHON = (() => {
+  try { execFileSync('python3', ['--version'], { stdio: 'ignore' }); return 'python3'; } catch {}
+  try { execFileSync('python',  ['--version'], { stdio: 'ignore' }); return 'python';  } catch {}
+  return 'python3'; // ostateczny fallback — błąd pojawi się przy próbie użycia
+})();
+
 export type Job = {
   id: string;
   kind: 'ingest' | 'deepdive' | 'search' | 'reeval';
@@ -64,12 +71,21 @@ function resolveViaCdp(): string | null {
 }
 
 function resolveClaudeExe(): string {
+  // 1. Jawne CLAUDE_EXE z env (site/.env lub powłoki nadrzędnej)
   if (process.env.CLAUDE_EXE && existsSync(process.env.CLAUDE_EXE)) return process.env.CLAUDE_EXE;
+  // 2. bin/cdp --which (czyta CLAUDE_EXE lub szuka claude w PATH; działa na obu platformach)
   const viaCdp = resolveViaCdp();
   if (viaCdp) return viaCdp;
-  // fallback: lokalne rozwiązanie (najnowsza wersja w %APPDATA%\Claude\claude-code\<wer>\claude.exe)
+  // 3. Fallback: `which claude` — na Linux/macOS bez działającego cdp
+  if (process.platform !== 'win32') {
+    try {
+      const found = execFileSync('which', ['claude'], { encoding: 'utf-8' }).trim();
+      if (found && existsSync(found)) return found;
+    } catch {}
+  }
+  // 4. Windows: najnowsza wersja w AppData\Claude\claude-code\<wer>\claude.exe
   const base = join(os.homedir(), 'AppData', 'Roaming', 'Claude', 'claude-code');
-  if (!existsSync(base)) throw new Error('Nie znaleziono Claude Code (ustaw CLAUDE_EXE lub sprawdź bin/cdp): ' + base);
+  if (!existsSync(base)) throw new Error('Nie znaleziono Claude Code. Ustaw CLAUDE_EXE w site/.env lub sprawdź bin/cdp.');
   const cmp = (a: string, b: string) => {
     const pa = a.split('.').map(Number), pb = b.split('.').map(Number);
     for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -145,7 +161,7 @@ export function startClaudeJob(
 
 // Deterministyczne wywołanie manage_listing.py (status/notatki) — synchronicznie, zwraca sparsowany JSON.
 export function runManage(args: string[]): any {
-  const out = execFileSync('python', ['scripts/manage_listing.py', ...args], {
+  const out = execFileSync(PYTHON, ['scripts/manage_listing.py', ...args], {
     cwd: PROJECT_DIR,
     encoding: 'utf-8',
     env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
@@ -156,4 +172,17 @@ export function runManage(args: string[]): any {
   } catch {
     return { raw: out };
   }
+}
+
+// Deterministyczne wywołanie priority_registry.py — synchronicznie, nie rzuca (priority = optional feature).
+export function runPriority(args: string[]): any {
+  try {
+    const out = execFileSync(PYTHON, ['scripts/priority_registry.py', ...args], {
+      cwd: PROJECT_DIR,
+      encoding: 'utf-8',
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+    });
+    const last = out.trim().split('\n').pop() || '';
+    try { return JSON.parse(last); } catch { return {}; }
+  } catch { return {}; }
 }

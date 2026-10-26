@@ -1,17 +1,17 @@
 ---
 export const prerender = false;
-import { readAllListings } from '../server/listings';
+import { readAllListings, readPriorityRegistry, autoPriority, offerHref } from '../server/listings';
 import Base from '../layouts/Base.astro';
 
-// Odczyt wprost z .md na każde żądanie (bez content-layer cache) — kształt {data} zachowany dla szablonu.
 const entries = readAllListings().map((l) => ({ data: l }));
+const registry = readPriorityRegistry();
+const getPriority = (d: any) => {
+  const e = registry[d.id];
+  return e?.priority ?? autoPriority(d.status ?? 'inactive', d.score ?? 0);
+};
 
-const statusRank = { favorite: 0, watch: 1, active: 2, inactive: 3 };
-entries.sort((a, b) => {
-  const s = (statusRank[a.data.status] ?? 9) - (statusRank[b.data.status] ?? 9);
-  if (s !== 0) return s;
-  return (b.data.score ?? -1) - (a.data.score ?? -1);
-});
+// Domyślne sortowanie wg priorytetu — odzwierciedla status+score dla ofert bez ręcznego ustawienia.
+entries.sort((a, b) => getPriority(b.data) - getPriority(a.data));
 
 const thumb = (d) =>
   d.cover ? '/' + d.cover : (d.photos?.length ? '/' + d.photos[0] : (d.images?.length ? d.images[0] : ''));
@@ -92,6 +92,7 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags ?? []))].sort((a,
       )}
       <label>Sortuj
         <select id="f-sort">
+          <option value="priority" selected>kolejność własna</option>
           <option value="score">ocena</option>
           <option value="added">data dodania</option>
           <option value="updated">data aktualizacji</option>
@@ -139,6 +140,7 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags ?? []))].sort((a,
             data-area={d.area_m2 ?? ''}
             data-dd={d.deep_dive?.date ? '1' : ''}
             data-score={d.score ?? ''}
+            data-priority={String(getPriority(d))}
             data-added={d.date_added ?? ''}
             data-updated={d.date_updated ?? ''}
             data-tags={JSON.stringify(d.tags ?? [])}
@@ -159,7 +161,7 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags ?? []))].sort((a,
                 <span class={`score ${scoreClass(d.score)}`}>{d.score ?? '—'}</span>
                 <span class={`st st-${d.status}`}>{d.status}</span>
                 {d.url && d.source_type !== 'geoportal' && (
-                  <a class="portal" href={d.url} target="_blank" rel="noopener">{d.source ?? 'ogłoszenie'} ↗</a>
+                  <a class="portal" href={offerHref(d.url)} target="_blank" rel="noopener">{d.source ?? 'ogłoszenie'} ↗</a>
                 )}
               </div>
               <a href={`/dzialka/${d.id}`}><div class="title">{d.title ?? '(bez tytułu)'}</div></a>
@@ -189,6 +191,14 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags ?? []))].sort((a,
       })}
     </div>
   </main>
+
+  <style>
+    .card.drag-on { cursor: grab; user-select: none; }
+    .card.drag-on:active { cursor: grabbing; }
+    .card.dragging { opacity: 0.35; }
+    .card.drop-before { box-shadow: 0 -4px 0 0 var(--accent); }
+    .card.drop-after  { box-shadow: 0 4px 0 0 var(--accent); }
+  </style>
 
   <Fragment slot="scripts">
   <script type="application/json" id="points-data" set:html={JSON.stringify(points)}></script>
@@ -254,14 +264,105 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags ?? []))].sort((a,
       sort: fSort.value, dd: fDd.checked, tags: selectedTags(),
     }));
 
-    // sortowanie kafelków (malejąco: najwyższa ocena / najnowsza data u góry)
+    // sortowanie kafelków
     function sortCards() {
       const key = fSort.value;
       [...cards].sort((a, b) => {
+        if (key === 'priority') return (+(b.dataset.priority || 0)) - (+(a.dataset.priority || 0));
         if (key === 'score') return (+(b.dataset.score || -1)) - (+(a.dataset.score || -1));
         return (b.dataset[key] || '').localeCompare(a.dataset[key] || '');
       }).forEach((c) => grid.appendChild(c));
+      setDragEnabled(key === 'priority');
     }
+
+    // --- drag & drop (tylko w trybie "kolejność własna") ---
+    let dragSrc = null;
+    let dropTarget = null;
+    let dropBefore = true;
+
+    function setDragEnabled(on) {
+      cards.forEach((c) => {
+        c.draggable = on;
+        c.classList.toggle('drag-on', on);
+      });
+    }
+
+    function clearDropState() {
+      if (dropTarget) {
+        dropTarget.classList.remove('drop-before', 'drop-after');
+        dropTarget = null;
+      }
+    }
+
+    cards.forEach((c) => {
+      c.addEventListener('dragstart', (e) => {
+        dragSrc = c;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', c.dataset.id);
+        setTimeout(() => c.classList.add('dragging'), 0);
+      });
+      c.addEventListener('dragend', () => {
+        c.classList.remove('dragging');
+        clearDropState();
+        dragSrc = null;
+      });
+      c.addEventListener('dragover', (e) => {
+        if (!dragSrc || dragSrc === c) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const rect = c.getBoundingClientRect();
+        const before = e.clientY < rect.top + rect.height * 0.5;
+        if (dropTarget !== c || dropBefore !== before) {
+          clearDropState();
+          dropTarget = c;
+          dropBefore = before;
+          c.classList.add(before ? 'drop-before' : 'drop-after');
+        }
+      });
+      c.addEventListener('dragleave', (e) => {
+        if (dropTarget === c && !c.contains(e.relatedTarget)) {
+          c.classList.remove('drop-before', 'drop-after');
+          dropTarget = null;
+        }
+      });
+      c.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        if (!dragSrc || dragSrc === c) { clearDropState(); return; }
+        const before = dropBefore;
+        clearDropState();
+
+        // widoczne karty z wyjątkiem przeciąganej — wyznaczają sąsiadów
+        const siblings = cards.filter((x) => x !== dragSrc && !x.classList.contains('hidden'));
+        const ti = siblings.indexOf(c);
+
+        let aboveP, belowP;
+        if (before) {
+          const above = ti > 0 ? siblings[ti - 1] : null;
+          aboveP = above ? +(above.dataset.priority || 0) : +(c.dataset.priority || 0) + 10000;
+          belowP = +(c.dataset.priority || 0);
+        } else {
+          const below = ti < siblings.length - 1 ? siblings[ti + 1] : null;
+          aboveP = +(c.dataset.priority || 0);
+          belowP = below ? +(below.dataset.priority || 0) : +(c.dataset.priority || 0) - 10000;
+        }
+
+        const newP = (aboveP + belowP) / 2;
+        dragSrc.dataset.priority = String(newP);
+
+        // optymistyczna aktualizacja DOM
+        if (before) c.before(dragSrc); else c.after(dragSrc);
+
+        // zapis do rejestru
+        try {
+          await fetch('/api/priority', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: dragSrc.dataset.id, priority: newP }),
+          });
+        } catch {}
+        dragSrc = null;
+      });
+    });
 
     function apply() {
       const text = q.value.trim().toLowerCase();
@@ -293,7 +394,7 @@ const allTags = [...new Set(entries.flatMap((e) => e.data.tags ?? []))].sort((a,
     }
     // opis aktywnych filtrów na belce (tylko te ustawione)
     const STATUS_LABEL = { '': '', active: 'aktywne i wyżej', watch: '👁 obserwowane i wyżej', favorite: '⭐ tylko ulubione' };
-    const SORT_LABEL = { score: '', added: 'wg daty dodania', updated: 'wg daty aktualizacji' };
+    const SORT_LABEL = { priority: '', score: 'wg oceny', added: 'wg daty dodania', updated: 'wg daty aktualizacji' };
     function updateDesc() {
       const parts = [];
       if (fStatus.value) parts.push(STATUS_LABEL[fStatus.value]);

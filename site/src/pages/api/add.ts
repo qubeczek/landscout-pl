@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { startClaudeJob } from '../../server/runner';
+import { startClaudeJob, runPriority } from '../../server/runner';
 
 export const prerender = false;
 
@@ -18,7 +18,9 @@ export const POST: APIRoute = async ({ request }) => {
       `naprawić (np. inny format URL, ponów). ` +
       `Na samym końcu wypisz w OSTATNIEJ linii wyłącznie czysty JSON bez komentarza: ` +
       `{"ok":true,"id":"<id_oferty>","created":<true|false>} albo {"ok":false,"error":"<powód>"}.`;
-    const jobId = startClaudeJob('ingest', `dodanie z linku: ${url}`, prompt);
+    const jobId = startClaudeJob('ingest', `dodanie z linku: ${url}`, prompt, null,
+      (job) => { if (job.status === 'done' && job.result?.id) runPriority(['recompute', '--id', String(job.result.id)]); },
+    );
     return new Response(JSON.stringify({ ok: true, jobId }), {
       headers: { 'content-type': 'application/json' },
     });

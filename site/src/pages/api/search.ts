@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { startClaudeJob } from '../../server/runner';
+import { startClaudeJob, runPriority } from '../../server/runner';
 
 export const prerender = false;
 
@@ -25,7 +25,10 @@ export const POST: APIRoute = async ({ request }) => {
       `Na samym końcu wypisz w OSTATNIEJ linii wyłącznie czysty JSON bez komentarza: ` +
       `{"ok":true,"added":<liczba nowo dodanych ofert>} albo {"ok":false,"error":"<powód>"}.`;
     const label = uwagi ? `szukanie w sieci: ${uwagi.slice(0, 40)}` : 'szukanie w sieci (properties-search)';
-    const jobId = startClaudeJob('search', label, prompt);
+    // po zakończeniu wyszukiwania przelicz priorytety wszystkich nowych ofert
+    const jobId = startClaudeJob('search', label, prompt, null,
+      (job) => { if (job.status === 'done') runPriority(['recompute-all']); },
+    );
     return new Response(JSON.stringify({ ok: true, jobId }), {
       headers: { 'content-type': 'application/json' },
     });

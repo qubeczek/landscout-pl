@@ -27,6 +27,33 @@ export function readAllListings(): Listing[] {
     .filter((x): x is Listing => x !== null);
 }
 
+// Link do ogłoszenia do wyświetlenia. OLX: format `/d/oferta/…` (desktop) otwiera aplikację mobilną,
+// ale ta nie pokazuje ogłoszenia — rozpoznaje tylko `/oferta/…` (OLX i tak przekierowuje go
+// na `/d/oferta/` w przeglądarce desktopowej i na `m.olx.pl/oferta/` na telefonie).
+export function offerHref(url: string): string {
+  return url.replace(/^(https?:\/\/(?:www\.|m\.)?olx\.pl)\/d\/oferta\//, '$1/oferta/');
+}
+
 export function renderMarkdown(md: string): string {
   return marked.parse(md || '', { async: false }) as string;
+}
+
+const PRIORITY_PATH = join(PROJECT_DIR, 'properties', 'priority_registry.json');
+
+export type PriorityEntry = { priority: number; manual: boolean; updated_at?: string };
+export type PriorityRegistry = Record<string, PriorityEntry>;
+
+export function readPriorityRegistry(): PriorityRegistry {
+  try {
+    if (!existsSync(PRIORITY_PATH)) return {};
+    return JSON.parse(readFileSync(PRIORITY_PATH, 'utf-8')) as PriorityRegistry;
+  } catch { return {}; }
+}
+
+const STATUS_PRIORITY_BASE: Record<string, number> = {
+  favorite: 400_000, watch: 300_000, active: 200_000, inactive: 100_000,
+};
+
+export function autoPriority(status: string, score: number | null | undefined): number {
+  return (STATUS_PRIORITY_BASE[status] ?? 100_000) + (score ?? 0) * 100;
 }

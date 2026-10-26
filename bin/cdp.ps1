@@ -44,5 +44,5 @@ if (($Rest -contains '-p') -or ($Rest -contains '--print')) {
 
 # Interaktywny remote-control.
 $session = if ($Rest.Count -ge 1) { $Rest[0] } else { Get-Date -Format 'yyyy-MM-dd HH:mm:ss' }
-& $exe --dangerously-skip-permissions --remote-control "$session"
+& $exe --dangerously-skip-permissions "--remote-control=$session"
 exit $LASTEXITCODE

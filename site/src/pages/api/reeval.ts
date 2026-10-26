@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { startClaudeJob, findRunningJob } from '../../server/runner';
+import { startClaudeJob, findRunningJob, runPriority } from '../../server/runner';
 import { startDeepDive, notesHaveUnconfirmedParcels } from '../../server/deepdive';
 
 export const prerender = false;
@@ -36,8 +36,10 @@ export const POST: APIRoute = async ({ request }) => {
       `(albo {"ok":false,"error":"..."}). NIE kończ na tablicy z oceny — wynik MUSI być zapisany w krokach 4.`;
     const jobId = startClaudeJob('reeval', `ponowna ocena: ${id}`, prompt, id,
       (job) => {
+        if (job.status !== 'done') return;
+        runPriority(['recompute', '--id', id]);
         // notatka podała numery działek, a karta ich nie potwierdza → deep-dive rozwiąże je w ULDK
-        if (job.status === 'done' && notesHaveUnconfirmedParcels(id)) {
+        if (notesHaveUnconfirmedParcels(id)) {
           startDeepDive(id, `Użytkownik podał w notatce numery działek — rozwiąż je i zaktualizuj blok parcel. `);
         }
       },

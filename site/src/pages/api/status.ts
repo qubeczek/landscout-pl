@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { runManage } from '../../server/runner';
+import { runManage, runPriority } from '../../server/runner';
 
 export const prerender = false;
 
@@ -13,6 +13,8 @@ export const POST: APIRoute = async ({ request }) => {
       return new Response(JSON.stringify({ ok: false, error: 'Brak id lub zły status' }), { status: 400 });
     }
     const res = runManage(['set-status', '--id', id, '--status', status]);
+    // priorytet przelicz z --force: zmiana statusu = oferta zmienia grupę, ręczne ustawienie traci sens
+    runPriority(['recompute', '--id', id, '--force']);
     return new Response(JSON.stringify({ ok: true, ...res }), {
       headers: { 'content-type': 'application/json' },
     });
