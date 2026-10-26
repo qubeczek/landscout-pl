@@ -305,6 +305,22 @@ const { title = 'Działki' } = Astro.props;
         setInterval(pollJobs, 4000);
       })();
     </script>
+    <script is:inline>
+      // Linki do Morizon: na Androidzie target=_blank otwiera je w nakładce (Custom Tab) zamiast w przeglądarce.
+      // intent:// bez wskazanej aplikacji przekazuje URL do domyślnego handlera https (domyślna przeglądarka).
+      (function () {
+        if (!/Android/i.test(navigator.userAgent)) return;
+        document.addEventListener('click', (e) => {
+          const a = e.target.closest && e.target.closest('a[href]');
+          if (!a || !/(^|\.)morizon\.pl$/i.test(a.hostname)) return;
+          e.preventDefault();
+          const u = new URL(a.href);
+          location.href = 'intent://' + u.host + u.pathname + u.search + u.hash.replace('#', '%23')
+            + '#Intent;scheme=' + u.protocol.replace(':', '') + ';action=android.intent.action.VIEW;'
+            + 'category=android.intent.category.BROWSABLE;S.browser_fallback_url=' + encodeURIComponent(a.href) + ';end';
+        }, true);
+      })();
+    </script>
     <script is:inline src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <slot name="scripts" />
   </body>
