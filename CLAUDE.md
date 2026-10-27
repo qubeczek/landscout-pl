@@ -83,7 +83,10 @@ w `.gitignore` — baza ofert to prywatne dane użytkownika (PII z ogłoszeń) i
   odświeża, nie dubluje zdjęć, zachowuje proweniencję i pola użytkownika). Jeden punkt wejścia dla skilla
   `properties-ingest` (agenci) oraz dla endpointu strony (ręczne dodanie linku).
 - `manage_listing.py` (upsert/note/set-status/set/set-tags/set-section/seen/delete/known-sources/add-photo/list/get) —
-  bezpieczny merge frontmattera, ID `YYYYMMDD_NNN`, dedup po (source, source_id). Statusy:
+  bezpieczny merge frontmattera, ID `YYYYMMDD_NNN`, dedup po (source, source_id)/URL, a **między portalami**
+  po treści (ta sama powierzchnia + cena ±1% + miejscowość lub ≤3 km): oferta z innego portalu nie tworzy
+  nowego pliku, tylko trafia do `alt_sources[]` istniejącej (na karcie „także na…"). `dedupe [--apply]`
+  scala istniejące duble (zostaje najbogatsza; notatki/tagi/najwyższy status/źródła przenoszone, reszta do `deleted/`). Statusy:
   `active/inactive/watch/favorite` (`favorite` = Ulubione → cel pogłębionej analizy). `delete` przenosi
   ofertę do **`properties/listings/deleted/`** (SKASOWANA — poza listą i stroną, usuwa zdjęcia; przywrócenie
   tylko ręczne przez przeniesienie pliku z powrotem). `known-sources` zwraca (source, source_id) z `listings/`

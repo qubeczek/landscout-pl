@@ -7,6 +7,8 @@ nigdy nie są nadpisywane — tylko dopisywane. Notatki żyją we frontmatterze 
 
 ID pliku = YYYYMMDD_NNN (data dodania + numer kolejny), więc lista sortuje się po dacie.
 Deduplikacja po (source, source_id): ponowny upsert tej samej oferty aktualizuje istniejący plik.
+Ta sama oferta z INNEGO portalu (agencje wystawiają wszędzie) nie tworzy nowego pliku — trafia do
+alt_sources[] istniejącej oferty (dopasowanie: powierzchnia + cena ±1% + miejscowość/≤3 km).
 
 Subkomendy:
   upsert       --json-file F | --stdin   [--source-type listing|geoportal] [--status S] [--score N]
@@ -27,11 +29,13 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import re
 import shutil
 import sys
 import time
+import unicodedata
 from typing import Any
 
 import yaml
@@ -57,7 +61,7 @@ KEY_ORDER = [
     "title", "kind", "price", "price_per_m2", "area_m2", "land_type", "transaction", "plot_type",
     "location", "lat", "lon", "coords_approx", "owner_type",
     "contact", "mpzp", "media", "notes", "tags", "parcel", "terrain", "deep_dive",
-    "images", "photos", "cover", "map_photo",
+    "images", "photos", "cover", "map_photo", "alt_sources",
     "date_created", "date_added", "date_updated",
 ]
 
@@ -156,6 +160,117 @@ def find_by_url(url: str) -> str | None:
     return None
 
 
+def _alt_hit(fm: dict, source: Any, source_id: Any, url: Any) -> bool:
+    """Czy (source, source_id) lub URL to jedno z alternatywnych źródeł oferty (alt_sources[])."""
+    nu = _norm_url(url)
+    for a in fm.get("alt_sources") or []:
+        if source and source_id and str(a.get("source")) == str(source) \
+                and str(a.get("source_id")) == str(source_id):
+            return True
+        if nu and _norm_url(a.get("url")) == nu:
+            return True
+    return False
+
+
+def find_by_alt(source: Any, source_id: Any, url: Any) -> str | None:
+    for lid in list_ids():
+        fm, _ = load_listing(lid)
+        if _alt_hit(fm, source, source_id, url):
+            return lid
+    return None
+
+
+# --- ta sama oferta na różnych portalach -----------------------------------
+CROSS_PRICE_TOL = 0.01  # cena ±1% (zaokrąglenia typu 399 999 / 399 000 nie, 420 000 / 419 999 tak)
+CROSS_MAX_KM = 3.0      # gdy miejscowość różnie zapisana (np. wieś vs gmina) — współrzędne blisko
+
+
+def _city_key(fm: dict) -> str:
+    c = ((fm.get("location") or {}).get("city") or "").split(",")[0].strip().lower().replace("ł", "l")
+    return unicodedata.normalize("NFKD", c).encode("ascii", "ignore").decode()
+
+
+def _km(a: dict, b: dict) -> float | None:
+    try:
+        la, lo, lb, lob = float(a["lat"]), float(a["lon"]), float(b["lat"]), float(b["lon"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    dy = (la - lb) * 111.2
+    dx = (lo - lob) * 111.2 * math.cos(math.radians(la))
+    return math.hypot(dx, dy)
+
+
+def same_offer_cross_portal(a: dict, b: dict) -> bool:
+    """Ta sama oferta wystawiona na RÓŻNYCH portalach (każdy nadaje własne source_id i URL).
+    Konserwatywnie: inny portal, ten sam rodzaj, identyczna powierzchnia, cena ±1% oraz ta sama
+    miejscowość albo współrzędne ≤3 km."""
+    if not a.get("source") or not b.get("source") or a.get("source") == b.get("source"):
+        return False
+    if a.get("kind") and b.get("kind") and a.get("kind") != b.get("kind"):
+        return False
+    if not a.get("area_m2") or a.get("area_m2") != b.get("area_m2"):
+        return False
+    pa, pb = a.get("price"), b.get("price")
+    if not pa or not pb or abs(pa - pb) > CROSS_PRICE_TOL * max(pa, pb):
+        return False
+    ca = _city_key(a)
+    if ca and ca == _city_key(b):
+        return True
+    d = _km(a, b)
+    return d is not None and d <= CROSS_MAX_KM
+
+
+def _sources_of(fm: dict) -> set[str]:
+    return {str(fm.get("source"))} | {str(x.get("source")) for x in fm.get("alt_sources") or []}
+
+
+def find_cross_portal(record: dict) -> str | None:
+    """Istniejąca oferta (z innego portalu), która jest tą samą ofertą co `record`. Pomija oferty, które
+    mają już źródło z portalu rekordu (wtedy rekord to raczej inna działka z serii)."""
+    for lid in list_ids():
+        fm, _ = load_listing(lid)
+        if str(record.get("source")) in _sources_of(fm):
+            continue
+        if same_offer_cross_portal(fm, record):
+            return lid
+    return None
+
+
+def _alt_entry(fm: dict) -> dict:
+    return {"source": fm.get("source"), "source_id": fm.get("source_id"), "url": fm.get("url"),
+            "price": fm.get("price")}
+
+
+def _add_alts(fm: dict, entries: list[dict]) -> list[dict]:
+    """Dopisz alternatywne źródła (bez dubli i bez źródła głównego). Zwraca faktycznie dodane."""
+    alts = list(fm.get("alt_sources") or [])
+    added = []
+    for e in entries:
+        if not e.get("url") and not e.get("source_id"):
+            continue
+        primary = str(e.get("source")) == str(fm.get("source")) and (
+            str(e.get("source_id")) == str(fm.get("source_id")) or _norm_url(e.get("url")) == _norm_url(fm.get("url")))
+        if primary or _alt_hit({"alt_sources": alts}, e.get("source"), e.get("source_id"), e.get("url")):
+            continue
+        alts.append(e)
+        added.append(e)
+    fm["alt_sources"] = alts
+    return added
+
+
+def attach_alt_source(listing_id: str, record: dict) -> bool:
+    """Zapisz `record` jako alternatywne źródło oferty `listing_id` (bez nadpisywania jej danych)."""
+    fm, body = load_listing(listing_id)
+    added = _add_alts(fm, [_alt_entry(record)])
+    if not added:
+        return False
+    fm["date_updated"] = _now_ts()
+    body = _append_to_section(body, "Historia",
+                              f"- {_today()} ta sama oferta także na {record.get('source')}: {record.get('url')}")
+    save_listing(listing_id, fm, body)
+    return True
+
+
 def _all_used_numbers() -> list[int]:
     """Numery (część po '_') ze WSZYSTKICH ofert: listings/ + deleted/ — by NNN był globalnie unikalny
     i nigdy nie był reużyty (też po skasowaniu)."""
@@ -218,6 +333,14 @@ def upsert_record(record: dict, source_type: str = "listing",
                   status: str | None = None, score: Any = None,
                   added_by: str | None = None) -> tuple[str, bool]:
     """Dodaj lub zaktualizuj ogłoszenie. Zwraca (id, created?)."""
+    r = upsert(record, source_type=source_type, status=status, score=score, added_by=added_by)
+    return r["id"], r["created"]
+
+
+def upsert(record: dict, source_type: str = "listing", status: str | None = None, score: Any = None,
+           added_by: str | None = None) -> dict:
+    """Dodaj lub zaktualizuj ogłoszenie. Zwraca {id, created, merged}; merged=True → rekord to ta sama
+    oferta z innego portalu — dopisany do alt_sources istniejącej oferty, jej dane NIE są nadpisywane."""
     _ensure_dirs()
     source = record.get("source")
     source_id = record.get("source_id")
@@ -226,6 +349,12 @@ def upsert_record(record: dict, source_type: str = "listing",
     existing = find_by_source(source, source_id) if source and source_id else None
     if not existing:
         existing = find_by_url(record.get("url"))
+    if not existing:
+        # ta sama oferta z innego portalu (znana już jako alt albo dopasowana po treści)
+        twin = find_by_alt(source, source_id, record.get("url")) or find_cross_portal(record)
+        if twin:
+            attach_alt_source(twin, record)
+            return {"id": twin, "created": False, "merged": True}
     created = existing is None
     listing_id = existing or _next_id()
 
@@ -278,7 +407,7 @@ def upsert_record(record: dict, source_type: str = "listing",
     body = _append_to_section(body, "Historia", f"- {_today()} {msg}")
 
     save_listing(listing_id, fm, body)
-    return listing_id, created
+    return {"id": listing_id, "created": created, "merged": False}
 
 
 # --- pozostałe operacje ---------------------------------------------------
@@ -479,6 +608,9 @@ def _scan_keys(dir_: str, scope: str) -> list[dict]:
         out.append({"id": f[:-3], "source": fm.get("source"),
                     "source_id": fm.get("source_id"), "url": _norm_url(fm.get("url")),
                     "scope": scope})
+        for a in fm.get("alt_sources") or []:  # ta sama oferta na innych portalach
+            out.append({"id": f[:-3], "source": a.get("source"), "source_id": a.get("source_id"),
+                        "url": _norm_url(a.get("url")), "scope": scope})
     return out
 
 
@@ -494,23 +626,25 @@ _STATUS_RANK = {"favorite": 3, "watch": 2, "active": 1, "inactive": 0}
 
 def _richness(fm: dict, listing_id: str) -> tuple:
     """Klucz „bogactwa" rekordu do wyboru, który z duplikatów zachować (większy = lepszy).
-    Priorytet: status (ulubione/obserwowane najwyżej) → ma ocenę → liczba zdjęć → notatki → deep-dive;
+    Priorytet: status (ulubione/obserwowane najwyżej) → deep-dive → notatki → potwierdzona działka →
+    ma ocenę → liczba zdjęć (praca włożona w ofertę waży więcej niż dane z portalu);
     remis rozstrzyga niższe ID (starsza/kanoniczna oferta)."""
     num = int(listing_id.split("_")[1]) if "_" in listing_id else 0
     return (
         _STATUS_RANK.get(fm.get("status"), 0),
+        1 if fm.get("deep_dive") else 0,
+        len(fm.get("notes") or []),
+        1 if (fm.get("parcel") or {}).get("confirmed") else 0,
         1 if fm.get("score") is not None else 0,
         len(fm.get("photos") or []),
-        1 if fm.get("notes") else 0,
-        1 if fm.get("deep_dive") else 0,
-        1 if (fm.get("parcel") or {}).get("confirmed") else 0,
         -num,  # remis → mniejszy numer (starsza oferta) wygrywa
     )
 
 
-def find_duplicate_groups() -> tuple[list[list[str]], dict]:
-    """Grupy ID (>1) uznane za tę samą ofertę: połączone po (source, source_id) LUB znormalizowanym URL.
-    Zwraca (grupy, {id: frontmatter})."""
+def find_duplicate_groups() -> tuple[list[list[str]], dict, set[str]]:
+    """Grupy ID (>1) uznane za tę samą ofertę: połączone po (source, source_id) LUB znormalizowanym URL
+    (także z alt_sources) LUB jako ta sama oferta na innym portalu (same_offer_cross_portal).
+    Zwraca (grupy, {id: frontmatter}, {id dopasowane między portalami})."""
     ids = list_ids()
     meta: dict[str, dict] = {}
     parent = {i: i for i in ids}
@@ -534,30 +668,64 @@ def find_duplicate_groups() -> tuple[list[list[str]], dict]:
         s, sid = fm.get("source"), fm.get("source_id")
         if s and sid not in (None, "None", ""):
             by_sid.setdefault((str(s), str(sid)), []).append(i)
-        u = _norm_url(fm.get("url"))
-        if u:
-            by_url.setdefault(u, []).append(i)
+        for a in [fm] + list(fm.get("alt_sources") or []):
+            u = _norm_url(a.get("url"))
+            if u:
+                by_url.setdefault(u, []).append(i)
     for grp in list(by_sid.values()) + list(by_url.values()):
         for j in grp[1:]:
             union(grp[0], j)
+    # między portalami: łącz tylko, gdy grupy nie mają wspólnego portalu — dwie oferty z tego samego
+    # portalu o tej samej cenie/powierzchni to raczej różne działki z serii niż dubel.
+    cross: set[str] = set()
+    for x, a in enumerate(ids):
+        for b in ids[x + 1:]:
+            if find(a) == find(b) or not same_offer_cross_portal(meta[a], meta[b]):
+                continue
+            src_a = set().union(*(_sources_of(meta[k]) for k in ids if find(k) == find(a)))
+            src_b = set().union(*(_sources_of(meta[k]) for k in ids if find(k) == find(b)))
+            if src_a & src_b:
+                continue
+            union(a, b)
+            cross.update((a, b))
     comps: dict[str, list[str]] = {}
     for i in ids:
         comps.setdefault(find(i), []).append(i)
-    return [sorted(v) for v in comps.values() if len(v) > 1], meta
+    return [sorted(v) for v in comps.values() if len(v) > 1], meta, cross
+
+
+def _merge_into(keeper: str, losers: list[str]) -> None:
+    """Przenieś do keepera to, co użytkownik zebrał na dublach: źródła (alt_sources), notatki, tagi
+    i najwyższy status (ulubione/obserwowane nie mogą zniknąć przez scalenie)."""
+    fm, body = load_listing(keeper)
+    for lid in losers:
+        lfm, _ = load_listing(lid)
+        _add_alts(fm, [_alt_entry(lfm)] + list(lfm.get("alt_sources") or []))
+        known = {str(n.get("id")) for n in fm.get("notes") or []}
+        fm["notes"] = list(fm.get("notes") or []) + [n for n in lfm.get("notes") or [] if str(n.get("id")) not in known]
+        fm["tags"] = _norm_tags(list(fm.get("tags") or []) + list(lfm.get("tags") or []))
+        if _STATUS_RANK.get(lfm.get("status"), 0) > _STATUS_RANK.get(fm.get("status"), 0):
+            fm["status"] = lfm.get("status")
+    fm["date_updated"] = _now_ts()
+    save_listing(keeper, fm, body)
 
 
 def dedupe(apply: bool = False) -> list[dict]:
-    """Wykryj duplikaty (po source_id/URL). Dla każdej grupy zostaw najbogatszy rekord, resztę przenieś
-    do deleted/ (z wpisem do historii keepera). apply=False → tylko plan (dry-run)."""
-    groups, meta = find_duplicate_groups()
+    """Wykryj duplikaty (po source_id/URL oraz tę samą ofertę na różnych portalach). Dla każdej grupy
+    zostaw najbogatszy rekord, scal do niego źródła/notatki/tagi/status dubli, a duble przenieś do
+    deleted/ (z wpisem do historii keepera). apply=False → tylko plan (dry-run)."""
+    groups, meta, cross = find_duplicate_groups()
     plan = []
     for grp in groups:
         keeper = max(grp, key=lambda i: _richness(meta[i], i))
         losers = [i for i in grp if i != keeper]
         plan.append({"keep": keeper, "delete": losers,
-                     "source": meta[keeper].get("source"),
+                     "cross_portal": any(i in cross for i in grp),
+                     "sources": [f"{i}:{meta[i].get('source')}" for i in grp],
+                     "title": meta[keeper].get("title"),
                      "url": _norm_url(meta[keeper].get("url"))})
         if apply:
+            _merge_into(keeper, losers)
             for i in losers:
                 delete_listing(i)
             log_history(keeper, f"dedup: scalono duplikaty {', '.join(losers)} (skasowane)")
@@ -727,7 +895,7 @@ def build_parser() -> argparse.ArgumentParser:
     ks = sub.add_parser("known-sources", help="(source, source_id, url) z listings + deleted — do dedup")
     ks.set_defaults(func=cmd_known)
 
-    dd = sub.add_parser("dedupe", help="Wykryj duplikaty (source_id/URL); zostaw najbogatszy, resztę do deleted")
+    dd = sub.add_parser("dedupe", help="Wykryj duplikaty (source_id/URL + ta sama oferta na innym portalu); scal do najbogatszej, resztę do deleted")
     dd.add_argument("--apply", action="store_true", help="wykonaj (bez tego tylko plan/dry-run)")
     dd.set_defaults(func=cmd_dedupe)
 

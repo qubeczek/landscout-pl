@@ -92,7 +92,7 @@ PYTHONIOENCODING=utf-8 python scripts/scrape_morizon.py --location "Walim" --kin
 ```
 Listing to **twarde filtrowanie** — ufaj parametrom portalu (cena/pow./lokalizacja). Połącz `listings` ze
 wszystkich wyników i **odrzuć duplikaty względem JUŻ ZNANYCH** — porównaj `source`+`source_id` z wynikiem
-`manage_listing.py known-sources` (obejmuje i aktywne `listings/`, i **skasowane `listings/deleted/`**).
+`manage_listing.py known-sources` (obejmuje i aktywne `listings/`, i **skasowane `listings/deleted/`**, oraz `alt_sources` — tę samą ofertę z innych portali). Dubel z innego portalu, którego nie złapie `known-sources`, ingest sam dopisze do istniejącej oferty (`merged_into` w wyniku) — nie licz go jako nowej.
 Dzięki temu oferta raz odrzucona NIE wraca przez ingest. Zbierz świeżych kandydatów (z polem `url`) do
 `/tmp/candidates.json` (tablica rekordów). Zaraportuj: ile znaleziono, ile nowych, ile pominięto jako znane
 (w tym skasowane). Jeśli skrypt zwróci `meta.error` — zaznacz to i kontynuuj z pozostałymi źródłami.

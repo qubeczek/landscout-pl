@@ -20,7 +20,7 @@ Użycie:
   python ingest_listing.py --records-file recs.json [--added-by search] # gotowe rekordy (np. FB)
 
 Wynik (stdout JSON): pojedynczy obiekt lub tablica obiektów:
-  {"url","id","created","source","title","photos","error"}
+  {"url","id","created","source","title","photos","error"[,"merged_into"]}
 """
 from __future__ import annotations
 
@@ -89,13 +89,15 @@ def ingest_one(url: str, added_by: str = "search", score: int | None = None,
     rec = records[0]
     out["title"] = rec.get("title")
     try:
-        listing_id, created = ml.upsert_record(rec, source_type="listing",
-                                               score=score, added_by=added_by)
+        res = ml.upsert(rec, source_type="listing", score=score, added_by=added_by)
     except Exception as exc:  # noqa: BLE001
         out["error"] = f"zapis .md nieudany: {exc}"
         return out
-    out["id"], out["created"] = listing_id, created
-    _fetch_photos_and_landtype(listing_id, rec, max_photos, out)
+    out["id"], out["created"] = res["id"], res["created"]
+    if res["merged"]:  # ta sama oferta z innego portalu — tylko link w alt_sources, bez zdjęć
+        out["merged_into"] = res["id"]
+        return out
+    _fetch_photos_and_landtype(res["id"], rec, max_photos, out)
     return out
 
 
@@ -109,13 +111,15 @@ def ingest_record(rec: dict, added_by: str = "search", score: int | None = None,
         out["error"] = "rekord bez source/source_id"
         return out
     try:
-        listing_id, created = ml.upsert_record(rec, source_type=rec.get("source") or "facebook",
-                                               score=score, added_by=added_by)
+        res = ml.upsert(rec, source_type=rec.get("source") or "facebook", score=score, added_by=added_by)
     except Exception as exc:  # noqa: BLE001
         out["error"] = f"zapis .md nieudany: {exc}"
         return out
-    out["id"], out["created"] = listing_id, created
-    _fetch_photos_and_landtype(listing_id, rec, max_photos, out)
+    out["id"], out["created"] = res["id"], res["created"]
+    if res["merged"]:  # ta sama oferta z innego portalu — tylko link w alt_sources, bez zdjęć
+        out["merged_into"] = res["id"]
+        return out
+    _fetch_photos_and_landtype(res["id"], rec, max_photos, out)
     return out
 
 

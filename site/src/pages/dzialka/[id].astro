@@ -79,7 +79,8 @@ const point = d.lat != null && d.lon != null ? { lat: d.lat, lon: d.lon, approx:
     <div class="panel">
       <dl class="kv">
         <dt>Źródło</dt><dd>{d.source} {d.source_type === 'geoportal' ? '(geoportal)' : ''}
-          {d.url && <> · <a href={offerHref(d.url)} target="_blank" rel="noopener">otwórz ogłoszenie →</a></>}</dd>
+          {d.url && <> · <a href={offerHref(d.url)} target="_blank" rel="noopener">otwórz ogłoszenie →</a></>}
+          {d.alt_sources?.length > 0 && <><br>także na: {d.alt_sources.map((a, i) => <>{i > 0 && ', '}<a href={offerHref(a.url)} target="_blank" rel="noopener">{a.source}{a.price && a.price !== d.price ? ` (${a.price.toLocaleString('pl-PL')} zł)` : ''} ↗</a></>)}</>}</dd>
         <dt>Lokalizacja</dt><dd>{[d.location?.address, d.location?.city, d.location?.region].filter(Boolean).join(', ') || '—'}
           {point?.approx && <span class="muted"> (współrzędne przybliżone)</span>}</dd>
         <dt>Typ</dt><dd>{d.kind === 'dom' ? '🏠 dom / siedlisko' : 'działka'}{d.plot_type ? ` · ${d.plot_type}` : ''}</dd>
