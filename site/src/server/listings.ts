@@ -27,6 +27,21 @@ export function readAllListings(): Listing[] {
     .filter((x): x is Listing => x !== null);
 }
 
+// Pozycja oferty na mapie: potwierdzona działka (ULDK, z deep-dive) wygrywa z lat/lon z portalu —
+// te bywają centroidem miejscowości albo adresem agencji. Deep-dive zapisuje pozycję tylko w `parcel`.
+export function pinOf(d: Record<string, any>): { lat: number; lon: number; approx: boolean } | null {
+  const p = d.parcel ?? {};
+  if (p.confirmed === true) {
+    const first = Array.isArray(p.parcels) ? p.parcels[0] : null;
+    const lat = p.lat ?? first?.lat, lon = p.lon ?? first?.lon;
+    if (lat != null && lon != null) return { lat: +lat, lon: +lon, approx: false };
+    const m = String(p.gmaps_url ?? '').match(/[?&]q=(-?[\d.]+),(-?[\d.]+)/);
+    if (m) return { lat: +m[1], lon: +m[2], approx: false };
+  }
+  if (d.lat == null || d.lon == null) return null;
+  return { lat: +d.lat, lon: +d.lon, approx: d.coords_approx !== false };
+}
+
 // Link do ogłoszenia do wyświetlenia. OLX: format `/d/oferta/…` (desktop) otwiera aplikację mobilną,
 // ale ta nie pokazuje ogłoszenia — rozpoznaje tylko `/oferta/…` (OLX i tak przekierowuje go
 // na `/d/oferta/` w przeglądarce desktopowej i na `m.olx.pl/oferta/` na telefonie).

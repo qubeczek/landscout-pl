@@ -1,6 +1,6 @@
 ---
 export const prerender = false;
-import { readAllListings, readPriorityRegistry, autoPriority, offerHref } from '../server/listings';
+import { readAllListings, readPriorityRegistry, autoPriority, offerHref, pinOf } from '../server/listings';
 import Base from '../layouts/Base.astro';
 
 const entries = readAllListings().map((l) => ({ data: l }));
@@ -20,12 +20,11 @@ const fmtPLN = (n) => (n == null ? '—' : n.toLocaleString('pl-PL') + ' zł');
 const fmtNum = (n) => (n == null ? '—' : n.toLocaleString('pl-PL'));
 
 const points = entries
-  .filter((e) => e.data.lat != null && e.data.lon != null)
-  .map((e) => ({
+  .map((e) => ({ e, pin: pinOf(e.data) }))
+  .filter(({ pin }) => pin)
+  .map(({ e, pin }) => ({
     id: e.data.id,
-    lat: e.data.lat,
-    lon: e.data.lon,
-    approx: e.data.coords_approx !== false,
+    ...pin,
     status: e.data.status,
     title: e.data.title ?? '(bez tytułu)',
     price: fmtPLN(e.data.price),

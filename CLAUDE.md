@@ -117,8 +117,9 @@ w agentach `general-purpose`), `properties-eval` (ocena/scoring na pełnych dany
 `properties-deep-dive`
 (pogłębiona analiza: `geo_analyze.py` + oględziny zdjęć → sekcja `## Analiza pogłębiona`; **nie zmienia
 statusu** oferty; uruchamiać przez agenta `general-purpose` — czytanie zdjęć jest kontekstowo ciężkie).
-Strona ma endpoint `POST /api/reeval` (zmiana notatki → ponowna ocena: score + sekcja + wpis do historii,
-bez zmiany statusu). **Każda prezentacja oferty z ogłoszenia musi zawierać link do ogłoszenia.**
+Strona ma endpoint `POST /api/reeval` (każda zmiana notatki → rozpoznanie cech z notatek do pól oferty:
+media/MPZP/kontakt/`land_type`/nr działki, potem ponowna ocena: score + sekcja + wpis do historii, bez zmiany
+statusu; numer działki z notatki niepotwierdzony → deep-dive). **Każda prezentacja oferty z ogłoszenia musi zawierać link do ogłoszenia.**
 
 ## Strona (`site/`, Astro 5, tryb SSR + `@astrojs/node`)
 

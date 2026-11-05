@@ -1,6 +1,6 @@
 ---
 export const prerender = false;
-import { readListing, readAllListings, renderMarkdown, offerHref } from '../../server/listings';
+import { readListing, readAllListings, renderMarkdown, offerHref, pinOf } from '../../server/listings';
 import Base from '../../layouts/Base.astro';
 
 // Odczyt wprost z .md na każde żądanie — zawsze świeże po mutacji (status/notatki/deep-dive/tagi).
@@ -21,7 +21,7 @@ const notes = d.notes ?? [];
 const parcel = d.parcel ?? null;
 
 const mediaIcon = (v) => (v === true || v === 'tak' ? '✓' : v == null || v === false ? '—' : String(v));
-const point = d.lat != null && d.lon != null ? { lat: d.lat, lon: d.lon, approx: d.coords_approx !== false } : null;
+const point = pinOf(d);
 ---
 <Base title={d.title ?? d.id}>
   <header>

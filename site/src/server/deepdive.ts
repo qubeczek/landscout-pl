@@ -14,6 +14,9 @@ export function startDeepDive(id: string, reason = ''): { jobId: string; already
     `Wykonaj pełną pogłębioną analizę (geoportal/ULDK, NMT, odległości, oględziny zdjęć) i zapisz wynik ` +
     `do sekcji "## Analiza pogłębiona" oraz pola deep_dive (data/historia) przez manage_listing.py. ` +
     `Numery działek i obręb szukaj także w notatkach użytkownika (notes[]) — mają pierwszeństwo nad opisem. ` +
+    `Jeśli numeru z notatki nie ma w ULDK (częsta pomyłka przy dyktowaniu przez telefon), sprawdź w tym obrębie ` +
+    `warianty różniące się jedną cyfrą (np. 162/5 → 152/5, 162/3, 16/5) i wskaż w analizie kandydata, którego ` +
+    `powierzchnia zgadza się z ofertą (±10%) — jako SUGESTIĘ do potwierdzenia, nie ustawiaj confirmed=true. ` +
     `Uruchom analizę nawet jeśli była już wcześniej (odśwież ją). ` +
     `Na końcu wypisz w OSTATNIEJ linii wyłącznie czysty JSON: ` +
     `{"ok":true,"id":"${id}"} albo {"ok":false,"error":"<powód>"}.`;
